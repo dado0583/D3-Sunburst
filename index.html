@@ -14,30 +14,54 @@
 
 <body>
 <script src="https://d3js.org/d3.v3.min.js"></script>
+<script src="palette.js"></script>
 <script>
+	/** Currently a fixed width. Could make this resizeable
+	although will need to make the text size resizeable too*/
 	var width = 960,
 			height = 700,
 			radius = Math.min(width, height) / 2;
 
-	var x = d3.scale.linear()
-			.range([0, 2 * Math.PI]);
+	/** The name of the centre of the sunburst*/
+	var radarName = "Tech Radar";
+	
+	/** Hack! The radius for the centre circle. Currently a hack as it needs
+	to accommodate the length of the value of the radarName variable which will
+	be displayed within it*/
+	var radiusForRadarName = 40;
+	
+	/**Hack! This must match the maximum depth in the JSON.
+	Didn't fix this as I'd like to swap the JSON out for CSV*/
+	var maxDepth = 3;
+	
+	
+	var x = d3.scale.linear().range([0, 2 * Math.PI]);
 
-	var y = d3.scale.linear()
-			.range([0, radius]);
+	var y = d3.scale.linear().range([0, radius]);
 
 	var color = d3.scale.category20c();
 
+	/** Using palette.js to provide a nice colour scheme*/
+	var colorPalette = palette('tol-rainbow', 10);
+	/** Used to track which colours are used for which 
+	lifecycle label (Buy/Sell/Assess/Trial/Hold)*/
+	var mapToColorPalette = {};
+	
+	//Appends the chart object to the HTML body element.
 	var svg = d3.select("body").append("svg")
 			.attr("width", width)
 			.attr("height", height)
 			.append("g")
 			.attr("transform", "translate(" + width / 2 + "," + (height / 2 + 10) + ")");
 
+	
 	var partition = d3.layout.partition()
 			.value(function(d) {
 				return d.size;
 			});
 
+	/* This function will generate the start angle, end angle and thickness of the arc 
+	for each element in the JSON provided.*/
 	var arc = d3.svg.arc()
 			.startAngle(function(d) {
 				return Math.max(0, Math.min(2 * Math.PI, x(d.x)));
@@ -46,91 +70,164 @@
 				return Math.max(0, Math.min(2 * Math.PI, x(d.x + d.dx)));
 			})
 			.innerRadius(function(d) {
-				return Math.max(0, y(d.y));
+        if(d.depth == 0) {
+          return 0;
+        } 
+        if(d.depth == 1) {
+          return 40;
+        } 
+        else {
+          var inner = ((d.depth-1)/maxDepth)*radius;
+          console.log(d.name +':'+ inner);
+          return inner;
+        }
 			})
 			.outerRadius(function(d) {
-				return Math.max(0, y(d.y + d.dy));
-			});
-
-
+      if(d.depth == 0) {
+      	return 40;
+      } else {
+      	var outer = (d.depth/maxDepth)*radius;
+        console.log(d.name +':'+ outer);
+      	return outer;
+      }
+				//return Math.max(0, y(d.y + d.dy));
+	});
+			
+	/*Sources the data from the JSON*/		
 	var g = svg.selectAll("g")
 			.data(partition.nodes(getData()))
 			.enter().append("g");
 
+	/* Will draw the arc for each item in the path*/
 	var path = g.append("path")
 			.attr("d", arc)
 			.style("fill", function(d) {
-				return color((d.children ? d : d.parent).name);
-			})
-			.on("click", click);
+				if (d.depth == 0) {
+					//Force the centre circle to be white*/
+					d.color = '#ffffff';
+					return d.color;
+				}
+				
+				if (d.depth > 1) {
+					//As we move further away from the centre circle
+					//the colour gets lighter. If your JSON is very deep
+					//everything will be white eventually.
+					d.color = ColorLuminance(d.parent.color, 0.15);
+					
+					return d.color;
+				}
+			
+				if(mapToColorPalette[d.name] == undefined) {
+					//Picks a colour from the palette and then
+					//removes it so that other categorizations
+					//will use a different colour. If you want more than
+					//10 categorizations change the colorPalette initialization above.
+					mapToColorPalette[d.name] = '#'+ colorPalette[0];
+					colorPalette.splice(0, 1);
+					d.color = mapToColorPalette[d.name];
+				}
+			
+				return d.color;
+			});
 
+	/* Draws the text within each arc */
 	var text = g.append("text")
 			.attr("transform", function(d) {
+			
+				if (radarName.indexOf(d.name) !== -1) {
+					return "rotate(" + 0 + ")";
+				}
+		
 				return "rotate(" + computeTextRotation(d) + ")";
 			})
 			.attr("x", function(d) {
+			
+				if (radarName.indexOf(d.name) !== -1) {
+					return -40;
+				}
+				
 				return y(d.y);
 			})
 			.attr("dx", "6") // margin
 			.attr("dy", ".35em") // vertical-align
 			.text(function(d) {
 				return d.name;
+			})
+			.attr("font-family", "sans-serif")
+			.style("fill", function(d) {
+				/*Uses the background colour of the arc to determine what colour the
+				text should be*/
+				
+				var rgb = hexToRGB(d.color);
+				var o = Math.round(((rgb.r * 299) + (rgb.g * 587) + (rgb.b * 114)) /1000);
+				
+				if(o > 125) {
+					return '#000000'; //black :)
+				}else{ 
+					return '#ffffff'; //white :)
+				}
 			});
-
-	function click(d) {
-		// fade out all text elements
-		text.transition().attr("opacity", 0);
-
-		path.transition()
-				.duration(750)
-				.attrTween("d", arcTween(d))
-				.each("end", function(e, i) {
-					// check if the animated element's data e lies within the visible angle span given in d
-					if (e.x >= d.x && e.x < (d.x + d.dx)) {
-						// get a selection of the associated text element
-						var arcText = d3.select(this.parentNode).select("text");
-						// fade in the text element and recalculate positions
-						arcText.transition().duration(750)
-								.attr("opacity", 1)
-								.attr("transform", function() {
-									return "rotate(" + computeTextRotation(e) + ")"
-								})
-								.attr("x", function(d) {
-									return y(d.y);
-								});
-					}
-				});
-	}
 
 	d3.select(self.frameElement).style("height", height + "px");
 
-	// Interpolate the scales!
-	function arcTween(d) {
-		var xd = d3.interpolate(x.domain(), [d.x, d.x + d.dx]),
-				yd = d3.interpolate(y.domain(), [d.y, 1]),
-				yr = d3.interpolate(y.range(), [d.y ? 20 : 0, radius]);
-		return function(d, i) {
-			return i ? function(t) {
-				return arc(d);
-			} : function(t) {
-				x.domain(xd(t));
-				y.domain(yd(t)).range(yr(t));
-				return arc(d);
-			};
-		};
-	}
-
+	/* Rotates the text around the centre axis. Effective at picking a
+	place for the text to live but displays upsidedown for half of the values*/
 	function computeTextRotation(d) {
-		if ("FIC Tech Radar".indexOf(d.name) !== -1) {
+		if (radarName.indexOf(d.name) !== -1) {
 			return 0;
 		}
 		
-		return (x(d.x + d.dx / 2) - Math.PI / 2) / Math.PI * 180;
+		var rotation = (x(d.x + d.dx / 2) - Math.PI / 2) / Math.PI * 180;
+		
+		
+		if(rotation > 180) {
+			//rotation = rotation - 180;
+			
+			//console.log("Rotation is "+ rotation);
+		}
+		
+		return rotation;
 	}
 
+	/*Helper functions below for colours*/
+	
+	function ColorLuminance(hex, lum) {
+		// validate hex string
+		hex = String(hex).replace(/[^0-9a-f]/gi, '');
+		if (hex.length < 6) {
+			hex = hex[0]+hex[0]+hex[1]+hex[1]+hex[2]+hex[2];
+		}
+		lum = lum || 0;
+
+		// convert to decimal and change luminosity
+		var rgb = "#", c, i;
+		for (i = 0; i < 3; i++) {
+			c = parseInt(hex.substr(i*2,2), 16);
+			c = Math.round(Math.min(Math.max(0, c + (c * lum)), 255)).toString(16);
+			rgb += ("00"+c).substr(c.length);
+		}
+
+		return rgb;
+	}
+	
+	function hexToRGB(hex) {
+		// Expand shorthand form (e.g. "03F") to full form (e.g. "0033FF")
+		var shorthandRegex = /^#?([a-f\d])([a-f\d])([a-f\d])$/i;
+		hex = hex.replace(shorthandRegex, function(m, r, g, b) {
+			return r + r + g + g + b + b;
+		});
+
+		var result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+		return result ? {
+			r: parseInt(result[1], 16),
+			g: parseInt(result[2], 16),
+			b: parseInt(result[3], 16)
+		} : null;
+	}
+	
 	function getData() {
 		return {
-			"name": "FIC Tech Radar",
+			"name": radarName,
 			"children": [{
 				"name": "Sell",
 				"children": [{

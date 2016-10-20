@@ -59,38 +59,46 @@
 			.value(function(d) {
 				return d.size;
 			});
-
+			
+	function getRadius(d, isInnerRadius) {
+		var result;
+	
+		if(d.depth == 0 && isInnerRadius) {
+		  result = 0;
+		} 
+		else if((d.depth == 1  && isInnerRadius) || d.depth == 0 && !isInnerRadius) {
+		  result = radiusForRadarName;
+		} 
+		else {
+		  var offset = isInnerRadius ? 1 : 0;
+		
+		  var inner = ((d.depth-offset)/maxDepth)*(radius);
+		  console.log(d.name +':'+ inner);
+		  result = inner;
+		}	
+		
+		if(isInnerRadius)
+			d.innerRadius = result;
+		else
+			d.outerRadius = result;
+		
+		return result;
+	}
+			
 	/* This function will generate the start angle, end angle and thickness of the arc 
 	for each element in the JSON provided.*/
 	var arc = d3.svg.arc()
-			.startAngle(function(d) {
-				return Math.max(0, Math.min(2 * Math.PI, x(d.x)));
-			})
-			.endAngle(function(d) {
-				return Math.max(0, Math.min(2 * Math.PI, x(d.x + d.dx)));
-			})
-			.innerRadius(function(d) {
-        if(d.depth == 0) {
-          return 0;
-        } 
-        if(d.depth == 1) {
-          return 40;
-        } 
-        else {
-          var inner = ((d.depth-1)/maxDepth)*radius;
-          console.log(d.name +':'+ inner);
-          return inner;
-        }
-			})
-			.outerRadius(function(d) {
-      if(d.depth == 0) {
-      	return 40;
-      } else {
-      	var outer = (d.depth/maxDepth)*radius;
-        console.log(d.name +':'+ outer);
-      	return outer;
-      }
-				//return Math.max(0, y(d.y + d.dy));
+		.startAngle(function(d) {
+			return Math.max(0, Math.min(2 * Math.PI, x(d.x)));
+		})
+		.endAngle(function(d) {
+			return Math.max(0, Math.min(2 * Math.PI, x(d.x + d.dx)));
+		})
+		.innerRadius(function(d) {
+			return getRadius(d, true);
+		})
+		.outerRadius(function(d) {
+			return getRadius(d, false);
 	});
 			
 	/*Sources the data from the JSON*/		
@@ -133,20 +141,19 @@
 	/* Draws the text within each arc */
 	var text = g.append("text")
 			.attr("transform", function(d) {
-			
-				if (radarName.indexOf(d.name) !== -1) {
+					
+				if (d.depth == 0) {
 					return "rotate(" + 0 + ")";
 				}
 		
 				return "rotate(" + computeTextRotation(d) + ")";
 			})
-			.attr("x", function(d) {
-			
-				if (radarName.indexOf(d.name) !== -1) {
-					return -40;
+			.attr("x", function(d) {			
+				if (d.depth == 0) {
+					return 0 - d.outerRadius;
 				}
 				
-				return y(d.y);
+				return d.innerRadius + 6;// d.//y(d.y);
 			})
 			.attr("dx", "6") // margin
 			.attr("dy", ".35em") // vertical-align
@@ -172,8 +179,8 @@
 
 	/* Rotates the text around the centre axis. Effective at picking a
 	place for the text to live but displays upsidedown for half of the values*/
-	function computeTextRotation(d) {
-		if (radarName.indexOf(d.name) !== -1) {
+	function computeTextRotation(d) {		
+		if (d.depth == 0) {
 			return 0;
 		}
 		
